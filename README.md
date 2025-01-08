@@ -1,3 +1,3 @@
-# A Simple MCP weather Server written in TypeScript
+# Mac iMessage MCP for Claude
 
-See the [Quickstart](https://modelcontextprotocol.io/quickstart) tutorial for more information.
+This is an MCP implementation for both reading and sending iMessages on the Macbook. Use this to let Claude (or other AIs supporting MCP) to interact with iMessage.
