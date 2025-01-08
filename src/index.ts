@@ -4,25 +4,13 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
 
-const NWS_API_BASE = "https://api.weather.gov";
-const USER_AGENT = "weather-app/1.0";
-
-// Define Zod schemas for validation
-const AlertsArgumentsSchema = z.object({
-  state: z.string().length(2),
-});
-
-const ForecastArgumentsSchema = z.object({
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-});
+import { getRecentChatMessages, sendIMessage } from "./imessage.js";
 
 // Create server instance
 const server = new Server(
   {
-    name: "weather",
+    name: "imessage",
     version: "1.0.0",
   },
   {
@@ -37,252 +25,61 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "get-alerts",
-        description: "Get weather alerts for a state",
+        name: "get-recent-chat-messages",
+        description: "Retrieve recent iMessage chat messages",
         inputSchema: {
           type: "object",
           properties: {
-            state: {
-              type: "string",
-              description: "Two-letter state code (e.g. CA, NY)",
-            },
+            phoneNumber: { type: "string", description: "Person's phone number" },
+            limit: { type: "number", description: "Number of messages to fetch" },
           },
-          required: ["state"],
+          required: ["phoneNumber", "limit"],
         },
       },
       {
-        name: "get-forecast",
-        description: "Get weather forecast for a location",
+        name: "send-imessage",
+        description: "Send an iMessage to a phone number",
         inputSchema: {
           type: "object",
           properties: {
-            latitude: {
-              type: "number",
-              description: "Latitude of the location",
-            },
-            longitude: {
-              type: "number",
-              description: "Longitude of the location",
-            },
+            phoneNumber: { type: "string", description: "Recipient's phone number" },
+            message: { type: "string", description: "Message content" },
           },
-          required: ["latitude", "longitude"],
+          required: ["phoneNumber", "message"],
         },
       },
     ],
   };
 });
 
-// Helper function for making NWS API requests
-async function makeNWSRequest<T>(url: string): Promise<T | null> {
-  const headers = {
-    "User-Agent": USER_AGENT,
-    Accept: "application/geo+json",
-  };
-
-  try {
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return (await response.json()) as T;
-  } catch (error) {
-    console.error("Error making NWS request:", error);
-    return null;
-  }
-}
-
-interface AlertFeature {
-  properties: {
-    event?: string;
-    areaDesc?: string;
-    severity?: string;
-    status?: string;
-    headline?: string;
-  };
-}
-
-// Format alert data
-function formatAlert(feature: AlertFeature): string {
-  const props = feature.properties;
-  return [
-    `Event: ${props.event || "Unknown"}`,
-    `Area: ${props.areaDesc || "Unknown"}`,
-    `Severity: ${props.severity || "Unknown"}`,
-    `Status: ${props.status || "Unknown"}`,
-    `Headline: ${props.headline || "No headline"}`,
-    "---",
-  ].join("\n");
-}
-
-interface ForecastPeriod {
-  name?: string;
-  temperature?: number;
-  temperatureUnit?: string;
-  windSpeed?: string;
-  windDirection?: string;
-  shortForecast?: string;
-}
-
-interface AlertsResponse {
-  features: AlertFeature[];
-}
-
-interface PointsResponse {
-  properties: {
-    forecast?: string;
-  };
-}
-
-interface ForecastResponse {
-  properties: {
-    periods: ForecastPeriod[];
-  };
-}
-
 // Handle tool execution
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
-  try {
-    if (name === "get-alerts") {
-      const { state } = AlertsArgumentsSchema.parse(args);
-      const stateCode = state.toUpperCase();
+  switch (name) {
+    case "get-recent-chat-messages": {
+      const { phoneNumber, limit } = args as { phoneNumber: string; limit: number };
+      const messages = await getRecentChatMessages(phoneNumber, limit);
+      return { content: [
+        {type: "text",
+        text: JSON.stringify(messages)},
+      ]};
+    }
 
-      const alertsUrl = `${NWS_API_BASE}/alerts?area=${stateCode}`;
-      const alertsData = await makeNWSRequest<AlertsResponse>(alertsUrl);
-
-      if (!alertsData) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Failed to retrieve alerts data",
-            },
-          ],
-        };
-      }
-
-      const features = alertsData.features || [];
-      if (features.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `No active alerts for ${stateCode}`,
-            },
-          ],
-        };
-      }
-
-      const formattedAlerts = features.map(formatAlert);
-      const alertsText = `Active alerts for ${stateCode}:\n\n${formattedAlerts.join(
-        "\n"
-      )}`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: alertsText,
-          },
-        ],
+    case "send-imessage": {
+      const { phoneNumber, message } = args as {
+        phoneNumber: string;
+        message: string;
       };
-    } else if (name === "get-forecast") {
-      const { latitude, longitude } = ForecastArgumentsSchema.parse(args);
+      await sendIMessage(phoneNumber, message);
+      return { content: [
+        {type: "text",
+        text: "Message sent successfully"},
+      ]};
+    }
 
-      // Get grid point data
-      const pointsUrl = `${NWS_API_BASE}/points/${latitude.toFixed(
-        4
-      )},${longitude.toFixed(4)}`;
-      const pointsData = await makeNWSRequest<PointsResponse>(pointsUrl);
-
-      if (!pointsData) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Failed to retrieve grid point data for coordinates: ${latitude}, ${longitude}. This location may not be supported by the NWS API (only US locations are supported).`,
-            },
-          ],
-        };
-      }
-
-      const forecastUrl = pointsData.properties?.forecast;
-      if (!forecastUrl) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Failed to get forecast URL from grid point data",
-            },
-          ],
-        };
-      }
-
-      // Get forecast data
-      const forecastData = await makeNWSRequest<ForecastResponse>(forecastUrl);
-      if (!forecastData) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Failed to retrieve forecast data",
-            },
-          ],
-        };
-      }
-
-      const periods = forecastData.properties?.periods || [];
-      if (periods.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "No forecast periods available",
-            },
-          ],
-        };
-      }
-
-      // Format forecast periods
-      const formattedForecast = periods.map((period: ForecastPeriod) =>
-        [
-          `${period.name || "Unknown"}:`,
-          `Temperature: ${period.temperature || "Unknown"}°${
-            period.temperatureUnit || "F"
-          }`,
-          `Wind: ${period.windSpeed || "Unknown"} ${
-            period.windDirection || ""
-          }`,
-          `${period.shortForecast || "No forecast available"}`,
-          "---",
-        ].join("\n")
-      );
-
-      const forecastText = `Forecast for ${latitude}, ${longitude}:\n\n${formattedForecast.join(
-        "\n"
-      )}`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: forecastText,
-          },
-        ],
-      };
-    } else {
+    default:
       throw new Error(`Unknown tool: ${name}`);
-    }
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new Error(
-        `Invalid arguments: ${error.errors
-          .map((e) => `${e.path.join(".")}: ${e.message}`)
-          .join(", ")}`
-      );
-    }
-    throw error;
   }
 });
 
@@ -290,7 +87,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Weather MCP Server running on stdio");
 }
 
 main().catch((error) => {

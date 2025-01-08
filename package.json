@@ -17,10 +17,13 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.3"
+    "@modelcontextprotocol/sdk": "^1.0.3",
+    "better-sqlite3": "^8.6.0",
+    "drizzle-orm": "^0.29.5"
   }
 }
