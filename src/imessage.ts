@@ -25,7 +25,7 @@ export async function getRecentChatMessages(phoneNumber: string, limit: number) 
   // Example "mapper"
   return chatResult.map(({ Message }) => ({
     id: Message.ROWID,
-    text: Message.text,
+    text: getContentFromIMessage(Message),
     isFromMe: Message.isFromMe === 1,
     timestamp: Message.date,
   }));
